@@ -90,14 +90,14 @@ class PurePersistentActorSpec
         actor ! PersistentCounter.Double
         actor ! PersistentCounter.Double
         actor ! PureActor.ProbeState
-        expectMsg(1000.millis, PersistentCounter.State(20))
+        expectMsg(10000.millis, PersistentCounter.State(20))
         actor ! PoisonPill
       }
 
       "retain it after restart" in {
         lazy val sameActor = newActor(5)
         sameActor ! PureActor.ProbeState
-        expectMsg(1000.millis, PersistentCounter.State(20))
+        expectMsg(10000.millis, PersistentCounter.State(20))
       }
     }
 
@@ -105,7 +105,7 @@ class PurePersistentActorSpec
       lazy val actor = newActor(0)
       "return the failure to the sender" in {
         actor ! PersistentCounter.Fail
-        expectMsg(1000.millis, "It failed.")
+        expectMsg(10000.millis, "It failed.")
       }
     }
   }
