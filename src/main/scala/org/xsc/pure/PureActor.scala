@@ -1,57 +1,51 @@
 package org.xsc.pure
 
-import akka.persistence.PersistentActor
+import akka.actor.Actor
 
 object PureActor {
-  /*
-   * Debug message to retrieve the internal actor state.
-   */
+
+  trait State[Effect, InternalState <: State[Effect, InternalState]] {
+    def update(effect: Effect): InternalState
+  }
+
+  trait Handler[InternalState <: State[Effect, InternalState],
+                Command,
+                Effect,
+                Response] {
+    type Result = (Option[Response], List[Effect])
+    def handle(state: InternalState, command: Command): Result
+  }
+
   final object ProbeState
 }
 
-/*
- * Trait for persistent Actor with Command/Effect semantics:
- * - Commands are processed, produce side-effects and a list of pure state
- *   effects.
- * - Pure state effects are persisted and applied to the internal, immutable
- *   state.
- */
-trait PureActor[State <: PureState[Effect, State], Command, Effect, Response]
-    extends PersistentActor {
+trait PureActor[InternalState <: PureActor.State[Effect, InternalState],
+                Command,
+                Effect,
+                Response]
+  extends Actor {
 
-  def initial(): State
-  def handler(): Handler[State, Command, Effect, Response]
+    def initial(): InternalState
+    def handler(): PureActor.Handler[InternalState, Command, Effect, Response]
 
-  private var state = initial()
-  private def mutateState(effect: Effect): Unit = {
-    state = state.update(effect)
-  }
+    override def receive: Receive = generateReceive(initial)
 
-  private def probeState(s: State): Unit =
-    sender() ! state
+    private def generateReceive(state: InternalState): Receive =
+      wrapReceive(receiveHandlerCommand(state))
+        .orElse(receiveInternal(state))
 
-  private def handleReceiveCommand(command: Command): Unit = {
-    handler.handle(state, command) match {
-      case (maybeResponse, effects) =>
-        persistAll(effects)(mutateState)
-        maybeResponse.foreach(response => deferAsync(response)(sender() ! _))
+    private def receiveHandlerCommand(state: InternalState)(command: Command): Unit = {
+      handler.handle(state, command) match {
+        case (maybeResponse, effects) =>
+          val newState = effects.foldLeft(state)(_.update(_))
+          context.become(generateReceive(newState))
+          maybeResponse.foreach(sender() ! _)
+      }
     }
-  }
 
-  // Boilerplate
-  protected def wrapReceiveCommand(handler: Command => Unit): Receive
-  protected def wrapReceiveRecover(handler: Effect => Unit): Receive
+    private def receiveInternal(state: InternalState): Receive = {
+      case PureActor.ProbeState => sender() ! state
+    }
 
-  private def receiveInternal: Receive = {
-    case PureActor.ProbeState => deferAsync(state)(probeState)
-  }
-
-  private def generateReceiveCommand() =
-    wrapReceiveCommand(handleReceiveCommand).orElse(receiveInternal)
-
-  private def generateReceiveRecover() =
-    wrapReceiveRecover(mutateState)
-
-  override def receiveCommand: Receive = generateReceiveCommand()
-  override def receiveRecover: Receive = generateReceiveRecover()
+    protected def wrapReceive(handler: Command => Unit): Receive
 }

@@ -10,8 +10,7 @@ and Clojure's [re-frame][reframe].
 ## Quickstart
 
 ```scala
-import org.xsc.pure.{ PureActor, PureState, Handler }
-import akka.actor.Receive
+import org.xsc.pure.{ PureActor, PurePersistentActor }
 ```
 
 First, we model the state, as well as the effects we can apply to it:
@@ -21,7 +20,7 @@ sealed trait Effect
 case class Increment(by: Int = 1) extends Effect
 case class Decrement(by: Int = 1) extends Effect
 
-final case class State(value: Int) extends PureState[Effect, State] {
+final case class State(value: Int) extends PureActor.State[Effect, State] {
   private def updateValue(f: Int => Int) =
     this.copy(value = f(this.value))
 
@@ -34,18 +33,18 @@ final case class State(value: Int) extends PureState[Effect, State] {
 ```
 
 Then, we model the commands and the respective handler, translating incoming
-commands to a response and a list of events:
+commands to a tuple of response and a list of events:
 
 ```scala
 sealed trait Command
 final object Double extends Command
 final object Fail extends Command
 
-class CounterHandler extends Handler[State, Command, Effect, String] {
+class CounterHandler extends PureActor.Handler[State, Command, Effect, String] {
   override def handle(state: State, command: Command): Result = {
     command match {
-      case Double => onlyEffects(Increment(state.value))
-      case Fail => onlyResponse("It failed.")
+      case Double => (None, Increment(state.value))
+      case Fail => (Some("It failed."), List.empty)
     }
   }
 }
@@ -54,12 +53,12 @@ class CounterHandler extends Handler[State, Command, Effect, String] {
 This handler is the only place where side-effectful interactions should happen,
 so this is where you should inject external datasources.
 
-Now, the actual `PureActor` is basically just a set of boilerplate, that you
-shouldn't really need to touch any more since all the logic is contained within
-the state and the handler.
+Now, the actual `PurePersistentActor` is basically just a set of boilerplate,
+that you shouldn't really need to touch any more since all the logic is
+contained within the state and the handler.
 
 ```scala
-class Counter extends PureActor[State, Command, Effect, String] {
+class Counter extends PurePersistentActor[State, Command, Effect, String] {
   val persistenceId = "counter"
   def initial(): State(0)
   def handler(): new CounterHandler()
