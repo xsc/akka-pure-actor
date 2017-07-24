@@ -5,7 +5,7 @@ object PureLogic {
   case class Increment(by: Int = 1) extends Effect
   case class Decrement(by: Int = 1) extends Effect
 
-  final case class State(value: Int) extends PureActor.State[Effect, State] {
+  final case class State(value: Int) {
     private def updateValue(f: Int => Int) =
       this.copy(value = f(this.value))
 
@@ -17,16 +17,20 @@ object PureLogic {
     }
   }
 
-  sealed trait Command
-  final object Double extends Command
-  final object Fail extends Command
+  def updateState(state: State, effect: Effect): State = {
+    state.update(effect)
+  }
 
-  class Handler extends PureActor.Handler[State, Command, Effect, String] {
-    def handle(state: State, command: Command): Result = {
-      command match {
-        case Double => (None, List(Increment(state.value)))
-        case Fail => (Some("It failed."), List.empty)
-      }
+  sealed trait Action
+  final case object Double extends Action
+  final case object Fail extends Action
+
+  def handleAction(state: State, action: Action): (Option[String], List[Effect]) = {
+    action match {
+      case Double => (None, List(Increment(state.value)))
+      case Fail => (Some("It failed."), List.empty)
     }
   }
+
+  def propagateEffect: PartialFunction[Effect, Unit] = PartialFunction.empty
 }

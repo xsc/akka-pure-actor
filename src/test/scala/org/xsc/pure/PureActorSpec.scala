@@ -14,16 +14,22 @@ object Counter {
 }
 
 class Counter(initialValue: Int)
-extends PureActor[State, Command, Effect, String]
-with ActorLogging
-{
-  def initial() = State(initialValue)
-  def handler() = new Handler()
+    extends PureActor[Action, Effect, String, State]
+    with ActorLogging {
 
-  override def wrapReceive(handler: Command => Unit): Receive = {
-    case command: Command =>
-      log.info(s"command received: $command")
-      handler(command)
+  val initialState = State(initialValue)
+  val updateState = PureLogic.updateState
+  val handleAction = PureLogic.handleAction
+  val propagateEffect = PureLogic.propagateEffect
+
+  override def wrapReceive(receiveAction: Action => Unit,
+                           receiveEffect: Effect => Unit): Receive = {
+    case action: Action =>
+      log.info(s"action received: $action")
+      receiveAction(action)
+    case effect: Effect =>
+      log.info(s"effect received: $effect")
+      receiveEffect(effect)
   }
 }
 
@@ -35,10 +41,6 @@ class PureActorSpec
   with ImplicitSender
   with WordSpecLike
   with BeforeAndAfterAll {
-
-  override def afterAll: Unit = {
-    TestKit.shutdownActorSystem(system)
-  }
 
   def newActor(initialValue: Int) =
     system.actorOf(Counter.props(initialValue))

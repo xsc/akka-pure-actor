@@ -14,23 +14,27 @@ object PersistentCounter {
 }
 
 class PersistentCounter(initialValue: Int)
-extends PurePersistentActor[State, Command, Effect, String]
-with ActorLogging
-{
+    extends PurePersistentActor[Action, Effect, String, State]
+    with ActorLogging {
   val persistenceId = "counter"
-  def initial() = State(initialValue)
-  def handler() = new Handler()
 
-  override def wrapReceiveCommand(handler: Command => Unit): Receive = {
-    case command: Command =>
-      log.info(s"command received: $command")
-      handler(command)
-  }
+  lazy val initialState = State(initialValue)
+  val updateState = PureLogic.updateState
+  val handleAction = PureLogic.handleAction
+  val propagateEffect = PureLogic.propagateEffect
 
-  override def wrapReceiveRecover(handler: Effect => Unit): Receive = {
+  override def wrapReceive(receiveAction: Action => Unit,
+                           receiveEffect: Effect => Unit): Receive = {
+    case action: Action =>
+      log.info(s"action received: $action")
+      receiveAction(action)
     case effect: Effect =>
-      log.info(s"recovering effect: $effect")
-      handler(effect)
+      if (recoveryRunning) {
+        log.info(s"recovering effect: $effect")
+      } else {
+        log.info(s"effect received: $effect")
+      }
+      receiveEffect(effect)
   }
 }
 
@@ -42,10 +46,6 @@ class PurePersistentActorSpec
   with ImplicitSender
   with WordSpecLike
   with BeforeAndAfterAll {
-
-  override def afterAll: Unit = {
-    TestKit.shutdownActorSystem(system)
-  }
 
   def newActor(initialValue: Int) =
     system.actorOf(PersistentCounter.props(initialValue))

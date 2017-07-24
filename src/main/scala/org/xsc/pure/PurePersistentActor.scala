@@ -2,45 +2,46 @@ package org.xsc.pure
 
 import akka.persistence.PersistentActor
 
-/*
- * Trait for persistent Actor with Command/Effect semantics:
- * - Commands are processed, produce side-effects and a list of pure state
- *   effects.
- * - Pure state effects are persisted and applied to the internal, immutable
- *   state.
- */
-trait PurePersistentActor[State <: PureActor.State[Effect, State], Command, Effect, Response]
-    extends PersistentActor {
+trait PurePersistentActor[Action, Effect, Response, State]
+    extends PersistentActor
+    with PureActor.Base[Action, Effect, Response, State] {
 
-  def initial(): State
-  def handler(): PureActor.Handler[State, Command, Effect, Response]
-
-  private var state = initial()
+  // ---- State
+  private var state = initialState
   private def mutateState(effect: Effect): Unit = {
-    state = state.update(effect)
+    state = updateState(state, effect)
   }
 
-  private def handleReceiveCommand(command: Command): Unit = {
-    handler.handle(state, command) match {
-      case (maybeResponse, effects) =>
-        persistAll(effects)(mutateState)
-        maybeResponse.foreach(response => deferAsync(response)(sender() ! _))
+  // ---- Action/Effect Handling
+  private def receiveAction(action: Action): Unit = {
+    val (maybeResponse, effects) = handleAction(state, action)
+    persistAll(effects)(mutateState)
+    maybeResponse.foreach { response =>
+      deferAsync(response)(sender() ! _)
+    }
+    forwardEffects(effects)
+  }
+
+  private def forwardEffects(effects: List[Effect]): Unit = {
+    effects.foreach { effect =>
+      deferAsync(effect)(self.forward(_))
     }
   }
 
-  // Boilerplate
-  protected def wrapReceiveCommand(handler: Command => Unit): Receive
-  protected def wrapReceiveRecover(handler: Effect => Unit): Receive
+  private def receiveEffect(effect: Effect): Unit = {
+    propagateEffect.lift(effect)
+  }
 
   private def receiveInternal: Receive = {
     case PureActor.ProbeState => deferAsync(state)(sender() ! _)
   }
 
+  // ---- Receive/Recover Logic
   private def generateReceiveCommand() =
-    wrapReceiveCommand(handleReceiveCommand).orElse(receiveInternal)
+    wrapReceive(receiveAction, receiveEffect).orElse(receiveInternal)
 
   private def generateReceiveRecover() =
-    wrapReceiveRecover(mutateState)
+    wrapReceive(_ => (), mutateState)
 
   override def receiveCommand: Receive = generateReceiveCommand()
   override def receiveRecover: Receive = generateReceiveRecover()
