@@ -10,65 +10,82 @@ and Clojure's [re-frame][reframe].
 ## Quickstart
 
 ```scala
-import org.xsc.pure.{ PureActor, PurePersistentActor }
+import org.xsc.pure.PurePersistentActor
 ```
 
-First, we model the state, as well as the effects we can apply to it:
+Internally, we have some kind of actor __state__, e.g.:
+
+```scala
+final case class State(value: Int = 0) {
+    def updateValue(f: Int => Int) =
+      this.copy(value = f(this.value))
+}
+```
+
+A pure actor gets triggered by an __action__, a datastructure representing
+complex logic:
+
+```scala
+sealed trait Action
+final case object Double extends Action
+final case object Reset  extends Action
+```
+
+These actions translate to __effects__, simple logical parts of the overall
+action:
 
 ```scala
 sealed trait Effect
 case class Increment(by: Int = 1) extends Effect
 case class Decrement(by: Int = 1) extends Effect
 
-final case class State(value: Int) extends PureActor.State[Effect, State] {
-  private def updateValue(f: Int => Int) =
-    this.copy(value = f(this.value))
-
-  def update(effect: Effect): State =
-    effect match {
-      case Increment(by) => this.updateValue(_ + by)
-      case Decrement(by) => this.updateValue(_ - by)
-    }
-}
-```
-
-Then, we model the commands and the respective handler, translating incoming
-commands to a tuple of response and a list of events:
-
-```scala
-sealed trait Command
-final object Double extends Command
-final object Fail extends Command
-
-class CounterHandler extends PureActor.Handler[State, Command, Effect, String] {
-  override def handle(state: State, command: Command): Result = {
-    command match {
-      case Double => (None, Increment(state.value))
-      case Fail => (Some("It failed."), List.empty)
-    }
+def handleCounterAction(state: State, action: Action): (Option[String], List[Effect]) = {
+  action match {
+    case Double => (None, List(Increment(state.value)))
+    case Reset => (None, List(Decrement(state.value)))
   }
 }
 ```
 
-This handler is the only place where side-effectful interactions should happen,
-so this is where you should inject external datasources.
-
-Now, the actual `PurePersistentActor` is basically just a set of boilerplate,
-that you shouldn't really need to touch any more since all the logic is
-contained within the state and the handler.
+And these effects have an impact on the actor state, represented by an update
+function:
 
 ```scala
-class Counter extends PurePersistentActor[State, Command, Effect, String] {
+def updateCounterState(state: State, effect: Effect): State {
+  effect match {
+    case Increment(by) => state.updateValue(_ + by)
+    case Decrement(by) => state.updateValue(_ - by)
+  }
+}
+```
+
+So far, everything is pure – we even assume that all information necessary for
+action validation/handling is contained within the state. But at some point, we
+might need to alter the world:
+
+```scala
+def propagateCounterEffect: PartialFunction[Effect, Unit] = {
+  case Increment(by) => persistIncrementToDB(by)
+  case Decrement(by) => persistDecrementToDB(by)
+}
+```
+
+The code to wire all this together is basically just boilerplate that should
+change very rarely:
+
+```scala
+final class Counter extends PurePersistentActor[Action, Effect, String, State] {
   val persistenceId = "counter"
-  def initial(): State(0)
-  def handler(): new CounterHandler()
 
-  override def wrapReceiveCommand(handler: Command => Unit): Receive = {
-    case command: Command => handler(command)
-  }
+  lazy val initialState = State()
+  val updateState       = updateCounterState
+  val handleAction      = handleCounterAction
+  val propagateEffect   = propagateCounterEffect
 
-  override def wrapReceiveRecover(handler: Effect => Unit): Receive = {
-    case effect: Effect => handler(effect)
+  override def wrapReceive(receiveAction: Action => Unit,
+                           receiveEffect: Effect => Unit): Receive = {
+    case action: Action => receiveAction(action)
+    case effect: Effect => receiveEffect(effect)
   }
 }
 ```

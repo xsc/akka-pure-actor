@@ -3,49 +3,52 @@ package org.xsc.pure
 import akka.actor.Actor
 
 object PureActor {
+  trait Base[Action, Effect, Response, State] {
+    type Propagate = PartialFunction[Effect, Unit]
 
-  trait State[Effect, InternalState <: State[Effect, InternalState]] {
-    def update(effect: Effect): InternalState
-  }
+    val initialState:    State
+    val handleAction:    (State, Action) => (Option[Response], List[Effect])
+    val updateState:     (State, Effect) => State
+    val propagateEffect: Propagate
 
-  trait Handler[InternalState <: State[Effect, InternalState],
-                Command,
-                Effect,
-                Response] {
-    type Result = (Option[Response], List[Effect])
-    def handle(state: InternalState, command: Command): Result
+    protected def wrapReceive(receiveAction: Action => Unit,
+                              receiveEffect: Effect => Unit): Actor.Receive
   }
 
   final object ProbeState
 }
 
-trait PureActor[InternalState <: PureActor.State[Effect, InternalState],
-                Command,
-                Effect,
-                Response]
-  extends Actor {
+trait PureActor[Action, Effect, Response, State]
+    extends Actor
+    with PureActor.Base[Action, Effect, Response, State] {
 
-    def initial(): InternalState
-    def handler(): PureActor.Handler[InternalState, Command, Effect, Response]
+  // ---- Action/Effect Handling
+  private def receiveAction(state: State)(action: Action): Unit = {
+    val (maybeResponse, effects) = handleAction(state, action)
+    val newState = effects.foldLeft(state)(updateState)
+    context.become(generateReceive(newState))
+    maybeResponse.foreach(sender() ! _)
+    forwardEffects(effects)
+  }
 
-    override def receive: Receive = generateReceive(initial)
+  private def forwardEffects(effects: List[Effect]): Unit = {
+    effects.foreach(self.forward(_))
+  }
 
-    private def generateReceive(state: InternalState): Receive =
-      wrapReceive(receiveHandlerCommand(state))
-        .orElse(receiveInternal(state))
+  private def receiveEffect(effect: Effect): Unit = {
+    propagateEffect.lift(effect)
+    ()
+  }
 
-    private def receiveHandlerCommand(state: InternalState)(command: Command): Unit = {
-      handler.handle(state, command) match {
-        case (maybeResponse, effects) =>
-          val newState = effects.foldLeft(state)(_.update(_))
-          context.become(generateReceive(newState))
-          maybeResponse.foreach(sender() ! _)
-      }
-    }
+  private def receiveInternal(state: State): Receive = {
+    case PureActor.ProbeState => sender() ! state
+  }
 
-    private def receiveInternal(state: InternalState): Receive = {
-      case PureActor.ProbeState => sender() ! state
-    }
+  // ---- Receive/Recover Logic
+  override def receive: Receive = generateReceive(initialState)
 
-    protected def wrapReceive(handler: Command => Unit): Receive
+  private def generateReceive(state: State): Receive = {
+    wrapReceive(receiveAction(state), receiveEffect)
+      .orElse(receiveInternal(state))
+  }
 }
