@@ -1,6 +1,8 @@
 package org.xsc.pure
 
+import akka.actor.ActorRef
 import akka.persistence.{ PersistentActor, AtLeastOnceDelivery }
+import concurrent.Future
 
 object PurePersistentActor {
   final case class ConfirmableEffect(deliveryId: Long, effect: Any)
@@ -14,6 +16,7 @@ trait PurePersistentActor[Action, Effect, Response, State]
     with AtLeastOnceDelivery
     with PureActor.Base[Action, Effect, Response, State] {
   import PurePersistentActor._
+  import context.dispatcher
 
   // ---- State
   private var state = initialState
@@ -35,13 +38,25 @@ trait PurePersistentActor[Action, Effect, Response, State]
     wrapReceive(noOp, to)(message)
   }
 
+  private def confirmEffect(me: ActorRef, deliveryId: Long) = {
+    me.tell(ConfirmedEffect(deliveryId), me)
+  }
+
+  private def confirmEffectOnCompletion(me: ActorRef, deliveryId: Long)(f: Future[Unit]) = {
+    f.onComplete(_ => confirmEffect(me, deliveryId))
+    ()
+  }
+
   private def receiveDelivery: Receive = {
     case confirmation @ ConfirmedEffect(deliveryId) =>
       persist(confirmation) { _ => confirmDelivery(deliveryId) }
     case ConfirmableEffect(deliveryId, effect) =>
+      val me = self
       dispatchEffect(effect) { effect =>
-        propagateEffect.lift(effect)
-        self ! ConfirmedEffect(deliveryId)
+        propagateEffect
+          .lift(effect)
+          .map(confirmEffectOnCompletion(me, deliveryId))
+          .getOrElse(confirmEffect(me, deliveryId))
       }
   }
 
@@ -70,8 +85,8 @@ trait PurePersistentActor[Action, Effect, Response, State]
 
   // ---- Receive/Recover Logic
   private def generateReceiveCommand() =
-    wrapReceive(receiveAction, mutateState)
-      .orElse(receiveDelivery)
+    receiveDelivery
+      .orElse(wrapReceive(receiveAction, mutateState))
       .orElse(receiveInternal)
 
   private def generateReceiveRecover() =

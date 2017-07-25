@@ -65,6 +65,30 @@ class PurePersistentActorSpec
         lazy val sameActor = newActor(5)
         sameActor ! PureActor.ProbeState
         expectMsg(10000.millis, State(20))
+        actor ! PoisonPill
+      }
+    }
+
+    "receiving a side-effecting command" should {
+      lazy val actor = newActor(5)
+      "propagate effects" in {
+        assert(PureLogic.printed == None)
+        actor ! SayHello
+        expectNoMsg(200.millis)
+        assert(PureLogic.printed == Some("Hello World!"))
+        assert(PureLogic.printCount == 1)
+        actor ! PureActor.ProbeState
+        expectMsg(10000.millis, State(20))
+      }
+
+      "not replay propagated effects after restart" in {
+        lazy val sameActor = newActor(5)
+        assert(PureLogic.printed == Some("Hello World!"))
+        assert(PureLogic.printCount == 1)
+        actor ! PureActor.ProbeState
+        expectMsg(10000.millis, State(20))
+        assert(PureLogic.printed == Some("Hello World!"))
+        assert(PureLogic.printCount == 1)
       }
     }
 

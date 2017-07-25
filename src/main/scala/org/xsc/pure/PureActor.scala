@@ -1,10 +1,11 @@
 package org.xsc.pure
 
 import akka.actor.Actor
+import concurrent.Future
 
 object PureActor {
   trait Base[Action, Effect, Response, State] {
-    type Propagate = PartialFunction[Effect, Unit]
+    type Propagate = PartialFunction[Effect, Future[Unit]]
 
     val initialState:    State
     val handleAction:    (State, Action) => (Option[Response], List[Effect])
