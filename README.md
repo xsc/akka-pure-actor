@@ -64,7 +64,7 @@ action validation/handling is contained within the state. But at some point, we
 might need to alter the world:
 
 ```scala
-def propagateCounterEffect: PartialFunction[Effect, Unit] = {
+def propagateCounterEffect: PartialFunction[Effect, Future[Unit]] = {
   case Increment(by) => persistIncrementToDB(by)
   case Decrement(by) => persistDecrementToDB(by)
 }
