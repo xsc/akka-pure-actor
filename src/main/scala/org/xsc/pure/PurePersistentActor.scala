@@ -22,16 +22,14 @@ trait PurePersistentActor[Action, Effect, Response, State]
   private var state = initialState
   private def mutateState(effect: Effect): Unit = {
     state = updateState(state, effect)
-    deliverIfPropagatable(effect)
+    deliverEffect(effect)
   }
 
   // ---- AtLeastOnceDelivery
   // We're delivering the effect to ourselves, allowing us to replay unfinished
   // effects after recovery.
-  private def deliverIfPropagatable(effect: Effect) = {
-    if (propagateEffect.isDefinedAt(effect)) {
-      deliver(self.path)(id => ConfirmableEffect(id, effect))
-    }
+  private def deliverEffect(effect: Effect) = {
+    deliver(self.path)(id => ConfirmableEffect(id, effect))
   }
 
   private def dispatchEffect(message: Any)(to: Effect => Unit) = {
