@@ -4,6 +4,8 @@ __akka-pure-actor__ provides an opinionated `PersistentActor` implementation
 based on immutable state and a simple update scheme, similar to [Redux][redux]
 and Clojure's [re-frame][reframe].
 
+[![Build Status](https://travis-ci.org/xsc/akka-pure-actor.svg?branch=master)](https://travis-ci.org/xsc/akka-pure-actor)
+
 [redux]: http://redux.js.org/docs/introduction/
 [reframe]: https://github.com/Day8/re-frame
 
