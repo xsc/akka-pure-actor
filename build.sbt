@@ -1,7 +1,7 @@
 name := "akka-pure-actor"
 organization := "org.xsc"
 
-version := "0.1.0"
+version := "0.1.0-SNAPSHOT"
 
 scalaVersion := "2.12.2"
 
