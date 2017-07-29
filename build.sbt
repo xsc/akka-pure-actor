@@ -9,6 +9,7 @@ lazy val akkaVersion = "2.5.3"
 
 scalacOptions ++= Seq(
   "-unchecked",
+  "-deprecation",
   "-feature",
   "-Ywarn-unused-import"
 )
